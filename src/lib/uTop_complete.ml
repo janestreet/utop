@@ -408,7 +408,7 @@ let add_fields_of_type decl acc =
         List.fold_left (fun acc field -> add (field_name field) acc) acc fields
 #if OCAML_VERSION >= (5, 2, 0)
     | Type_abstract _ ->
-#else 
+#else
     | Type_abstract ->
 #endif
         acc
@@ -427,7 +427,7 @@ let add_names_of_type decl acc =
         List.fold_left (fun acc field -> add (field_name field) acc) acc fields
 #if OCAML_VERSION >= (5, 2, 0)
     | Type_abstract _ ->
-#else 
+#else
     | Type_abstract ->
 #endif
         acc
@@ -531,7 +531,7 @@ let list_global_names () =
     | Env.Env_empty -> acc
     | Env.Env_value_unbound _-> acc
     | Env.Env_module_unbound _-> acc
-    | Env.Env_value(summary, id, _) ->
+    | Env.Env_value(summary, id, _, _) ->
         loop (add (Ident.name id) acc) summary
     | Env.Env_type(summary, id, decl) ->
         loop (add_names_of_type decl (add (Ident.name id) acc)) summary
@@ -585,7 +585,7 @@ let list_global_fields () =
     | Env.Env_empty -> acc
     | Env.Env_value_unbound _-> acc
     | Env.Env_module_unbound _-> acc
-    | Env.Env_value(summary, id, _) ->
+    | Env.Env_value(summary, id, _, _) ->
         loop (add (Ident.name id) acc) summary
     | Env.Env_type(summary, id, decl) ->
         loop (add_fields_of_type decl (add (Ident.name id) acc)) summary
@@ -709,11 +709,11 @@ let rec labels_of_type acc type_expr =
         labels_of_type acc te
     | Tpoly (te, _) ->
         labels_of_type acc te
-    | Tarrow(label, _, te, _) ->
+    | Tarrow((label, _, _), _, te, _) ->
       (match label with
       | Nolabel ->
         labels_of_type acc te
-      | Optional label ->
+      | Position label | Optional label ->
         labels_of_type (String_map.add label Optional acc) te
       | Labelled label ->
         labels_of_type (String_map.add label Required acc) te)

@@ -295,102 +295,6 @@ class read_phrase ~term = object(self)
     self#set_prompt !UTop.prompt
 end
 
-(* +-----------------------------------------------------------------+
-   | Handling of [@@toplevel_printer] attributes                     |
-   +-----------------------------------------------------------------+ *)
-
-module Autoprinter : sig
-  val scan_env : Format.formatter -> unit
-
-  val scan_cmis : Format.formatter -> unit
-end = struct
-  open Types
-
-  let cons_path path id =
-    let comp = Ident.name id in
-    match path with
-    | None -> Longident.Lident comp
-    | Some path -> Longident.Ldot (path, comp)
-
-  let is_auto_printer_attribute (attr : Parsetree.attribute) =
-    let name = attr.attr_name in
-    match name.txt with
-    | "toplevel_printer" | "ocaml.toplevel_printer" -> true
-    | _ -> false
-
-  let rec walk_sig pp ~path signature =
-    List.iter (walk_sig_item pp (Some path)) signature
-
-  and walk_sig_item pp path = function
-    | Sig_module (id, _, {md_type = mty; _}, _, _) ->
-        walk_mty pp (cons_path path id) mty
-    | Sig_value (id, vd, _) ->
-      if List.exists is_auto_printer_attribute vd.val_attributes then
-        Topdirs.dir_install_printer pp (cons_path path id)
-    | _ -> ()
-
-  and walk_mty pp path = function
-    | Mty_signature s -> walk_sig pp ~path s
-    | _ -> ()
-
-  let scan_cmis =
-    let new_cmis = ref [] in
-    UTop_compat.add_cmi_hook (fun cmi -> new_cmis := cmi :: !new_cmis );
-    fun pp ->
-      List.iter (fun (cmi : Cmi_format.cmi_infos) ->
-        walk_sig pp ~path:(Longident.Lident cmi.cmi_name) cmi.cmi_sign
-      ) !new_cmis;
-      new_cmis := []
-
-  let scan_env =
-    let last_globals = ref (Env.get_required_globals ()) in
-    let last_summary = ref Env.Env_empty in
-    fun pp ->
-      let env = !Toploop.toplevel_env in
-      let scan_module env id =
-        let name = Longident.Lident (Ident.name id) in
-        let path, {md_type; _} = Env.find_module_by_name name env in
-        if path = Path.Pident id then
-          walk_mty pp name md_type
-      in
-      let rec scan_globals last = function
-        | [] -> ()
-        | x when x == last -> ()
-        | x :: xs ->
-          scan_globals last xs;
-          scan_module env x
-      in
-      let rec scan_summary last = function
-        | Env.Env_empty -> ()
-        | x when x == last -> ()
-        | Env.Env_module (s, id, _, _) ->
-          scan_summary last s;
-          scan_module env id
-        | Env.Env_copy_types s
-        | Env.Env_value_unbound (s, _, _)
-        | Env.Env_module_unbound (s, _, _)
-        | Env.Env_persistent (s, _)
-        | Env.Env_value (s, _, _)
-        | Env.Env_type (s, _, _)
-        | Env.Env_extension (s, _, _)
-        | Env.Env_modtype (s, _, _)
-        | Env.Env_class (s, _, _)
-        | Env.Env_cltype (s, _, _)
-        | Env.Env_open (s, _)
-        | Env.Env_functor_arg (s, _)
-        | Env.Env_constraints (s, _) ->
-          scan_summary last s
-      in
-      let globals = Env.get_required_globals () in
-      let last_globals' = !last_globals in
-      last_globals := globals;
-      scan_globals last_globals' globals;
-      let summary = Env.summary env in
-      let last_summary' = !last_summary in
-      last_summary := summary;
-      scan_summary last_summary' summary
-end
-
 let render_out_phrase term string =
   if String.length string >= 100 * 1024 then
     LTerm.fprint term string
@@ -490,7 +394,6 @@ let print_out_signature pp items =
     orig_print_out_signature pp items
 
 let print_out_phrase pp phrase =
-  Autoprinter.scan_env pp;
   if UTop.get_hide_reserved () then
     let phrase =
       match phrase with
@@ -627,7 +530,7 @@ let rewrite_str_item pstr_item tstr_item =
   match pstr_item, tstr_item.Typedtree.str_desc with
     | ({ Parsetree.pstr_desc = Parsetree.Pstr_eval (e, _);
          Parsetree.pstr_loc = loc },
-       Typedtree.Tstr_eval ({ Typedtree.exp_type = typ }, _)) -> begin
+       Typedtree.Tstr_eval ({ Typedtree.exp_type = typ }, _, _)) -> begin
       match rule_of_type typ with
         | Some rule ->
           { Parsetree.pstr_desc = Parsetree.Pstr_eval (rule.rewrite loc e, []);
@@ -678,11 +581,7 @@ let bind_expressions name phrase =
     | Parsetree.Ptop_dir _ ->
       phrase
 
-let execute_phrase b ppf phrase =
-  Autoprinter.scan_cmis ppf;
-  let res = Toploop.execute_phrase b ppf phrase in
-  Autoprinter.scan_cmis ppf;
-  res
+let execute_phrase b ppf phrase = Toploop.execute_phrase b ppf phrase
 
 (* +-----------------------------------------------------------------+
    | Main loop                                                       |
@@ -1521,8 +1420,9 @@ type value = V : string * _ -> value
 exception Found of Env.t
 
 let get_required_label name args =
-  match List.find (fun (lab, _) -> lab = Asttypes.Labelled name) args with
-  | _, x -> x
+  match List.find (fun (lab, _) -> lab = Typedtree.Labelled name) args with
+  | _, Typedtree.Omitted _ -> None
+  | _, Typedtree.Arg (x, _) -> Some x
   | exception Not_found -> None
 
 let walk dir ~init ~f =
@@ -1557,7 +1457,7 @@ let interact ?(search_path=[]) ?(build_dir="_build") ~unit ~loc:(fname, lnum, cn
   let cmt_infos = Cmt_format.read_cmt cmt_fname in
   let expr next (e : Typedtree.expression) =
     match e.exp_desc with
-        | Texp_apply (_, args) -> begin
+        | Texp_apply (_, args, _, _, _) -> begin
             try
               match get_required_label "loc"    args,
                     get_required_label "values" args

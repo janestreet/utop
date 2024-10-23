@@ -298,6 +298,9 @@ let parse_default parse str eos_is_error =
              Hint: Mutable sequences of bytes are available in the Bytes module.\n\
              Hint: Did you mean to use 'Bytes.set'?")
 #endif
+      | Syntaxerr.Missing_unboxed_literal_suffix loc ->
+        Error ([mkloc loc],
+               Printf.sprintf "Syntax error: Unboxed integer literals require width suffixes.")
     end
     | Syntaxerr.Escape_error | Parsing.Parse_error ->
         Error ([mkloc (Location.curr lexbuf)],

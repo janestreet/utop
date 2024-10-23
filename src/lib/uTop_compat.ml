@@ -59,7 +59,7 @@ let toploop_load_file ppf fn =
 
 (** Returns whether the given path is persistent. *)
 let rec is_persistent_path = function
-  | Path.Pident id -> Ident.persistent id
+  | Path.Pident id -> Ident.is_global_or_predef id
   | Path.Pdot (p, _) -> is_persistent_path p
   | Path.Papply (_, p) -> is_persistent_path p
 #if OCAML_VERSION >= (5, 1, 0)
